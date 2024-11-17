@@ -10,8 +10,8 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
-from sklearn.metrics import mean_squared_error, make_scorer
-from sklearn.metrics import root_mean_squared_error, r2_score, make_scorer
+from sklearn.metrics import root_mean_squared_error, r2_score
+from sklearn.metrics import explained_variance_score, make_scorer
 from sklearn.model_selection import GridSearchCV
 
 # Load dataset
@@ -115,27 +115,32 @@ best_params = xgb_random_search.best_params_
 print(f"Best XGBoost parameters: {best_params}")
 
 
-def root_mean_squared_error(y_true, y_pred):
-    return mean_squared_error(y_true, y_pred, squared=False)
+# def root_mean_squared_error(y_true, y_pred):
+#     return mean_squared_error(y_true, y_pred, squared=False)
+#
 
 rmse_scorer = make_scorer(root_mean_squared_error, greater_is_better=False)
 
 print("Best Parameters for XGBoost Model:", xgb_random_search.best_params_)
 
-# Additional evaluation on validation set
+
+# Updated evaluation function with explained variance
 def evaluate_model(model, X_val, y_val):
+    """
+    Evaluate the model using RMSE, R², and explained variance.
+    """
     predictions = model.predict(X_val)
-    rmse = root_mean_squared_error(y_val, predictions)
-    r2 = r2_score(y_val, predictions)  # Use r2_score directly for R-squared
+    rmse = root_mean_squared_error(y_val, predictions)  # Updated to use sklearn's function
+    r2 = r2_score(y_val, predictions)
+    evs = explained_variance_score(y_val, predictions)  # Explained variance
     print(f"Validation RMSE: {rmse:.4f}")
-    print(f"Validation R-squared: {r2:.4f}")
-    return rmse, r2
+    print(f"Validation R²: {r2:.4f}")
+    print(f"Validation Explained Variance: {evs:.4f}")
+    return rmse, r2, evs
 
-evaluate_model(best_xgb_model, baseX_val, base_y_val)  # Call to evaluate_model for RMSE and R-squared
-
-# Evaluate and print results for the best XGBoost model on the base validation set
+# Evaluate the model on the base validation set
 print("Evaluation Metrics for Best XGBoost Model:")
-rmse, r2 = evaluate_model(best_xgb_model, baseX_val, base_y_val)
+rmse, r2, evs = evaluate_model(best_xgb_model, baseX_val, base_y_val)
 
 # Function to plot grid search results
 def plot_grid_search_results(grid_search, param_grid):
@@ -156,10 +161,12 @@ def plot_grid_search_results(grid_search, param_grid):
 # Call the plotting function for XGBoost results
 plot_grid_search_results(xgb_random_search, xgb_params)
 
-# Principal Component Analysis to assess dimensionality
 def plot_pca_variance(df, n_components=10):
+    """
+    Plot cumulative explained variance by principal components.
+    """
+    transformed_data = preprocessor.fit_transform(df).toarray()  # Convert to dense array
     pca = PCA(n_components=n_components)
-    transformed_data = preprocessor.fit_transform(df)
     pca.fit(transformed_data)
     plt.figure(figsize=(10, 6))
     plt.plot(np.cumsum(pca.explained_variance_ratio_), marker='o')
@@ -169,6 +176,33 @@ def plot_pca_variance(df, n_components=10):
     plt.grid(True)
     plt.show()
 
-# Plot PCA on base training set
+# Plot PCA for base training set
 plot_pca_variance(baseX_train)
 
+importances = best_xgb_model.named_steps['model'].feature_importances_
+feature_names = preprocessor.get_feature_names_out()
+feature_importances = pd.DataFrame({
+    'Feature': feature_names,
+    'Importance': importances
+}).sort_values(by='Importance', ascending=False)
+
+plt.figure(figsize=(10, 6))
+sns.barplot(data=feature_importances.head(10), x='Importance', y='Feature')
+plt.title("Top 10 Feature Importances")
+plt.show()
+
+
+
+def plot_residuals(y_true, y_pred):
+    residuals = y_true - y_pred
+    plt.figure(figsize=(10, 6))
+    sns.histplot(residuals, kde=True)
+    plt.axvline(0, color='red', linestyle='--')
+    plt.title("Residuals Distribution")
+    plt.xlabel("Residual")
+    plt.ylabel("Frequency")
+    plt.show()
+
+# On validation set
+preds = best_xgb_model.predict(baseX_val)
+plot_residuals(base_y_val, preds)
